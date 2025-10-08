@@ -1,0 +1,773 @@
+"""
+NBA Player Performance Machine Learning Models
+
+This module implements machine learning models for NBA player performance prediction
+and classification. It includes regression models for predicting player statistics
+and classification models for player categorization.
+
+Key Features:
+- Regression models for points, rebounds, assists prediction
+- Classification models for player tier and position prediction
+- Feature engineering and selection
+- Model evaluation and validation
+- Hyperparameter tuning
+- Model persistence and deployment
+
+Author: Data Scientist Portfolio Project
+Date: 2024
+"""
+
+import pandas as pd
+import numpy as np
+import logging
+from typing import Dict, List, Tuple, Optional, Any
+import pickle
+import json
+from pathlib import Path
+from datetime import datetime
+
+# Machine Learning imports
+from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.svm import SVR, SVC
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.metrics import (
+    mean_squared_error, r2_score, mean_absolute_error,
+    accuracy_score, classification_report, confusion_matrix,
+    precision_score, recall_score, f1_score
+)
+from sklearn.feature_selection import SelectKBest, f_regression, f_classif
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class NBAFeatureEngineer:
+    """
+    Feature engineering class for NBA player data
+    
+    This class handles the creation and transformation of features
+    for machine learning models, including advanced basketball metrics
+    and derived statistics.
+    """
+    
+    def __init__(self):
+        """Initialize the feature engineer"""
+        self.scaler = StandardScaler()
+        self.label_encoders = {}
+        self.feature_columns = []
+        
+    def create_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Create comprehensive feature set for machine learning
+        
+        Args:
+            df: Raw player data DataFrame
+            
+        Returns:
+            DataFrame with engineered features
+        """
+        df = df.copy()
+        
+        # Basic statistical features
+        df = self._create_basic_features(df)
+        
+        # Advanced basketball metrics
+        df = self._create_advanced_metrics(df)
+        
+        # Position-based features
+        df = self._create_position_features(df)
+        
+        # Team context features
+        df = self._create_team_features(df)
+        
+        # Historical performance features
+        df = self._create_historical_features(df)
+        
+        # Interaction features
+        df = self._create_interaction_features(df)
+        
+        return df
+    
+    def _create_basic_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Create basic statistical features
+        
+        Args:
+            df: Input DataFrame
+            
+        Returns:
+            DataFrame with basic features added
+        """
+        # Shooting efficiency metrics
+        df['true_shooting_percentage'] = df['pts'] / (2 * (df['fga'] + 0.44 * df['fta']))
+        df['effective_field_goal_pct'] = (df['fgm'] + 0.5 * df['fg3m']) / df['fga']
+        
+        # Per-minute statistics (normalize for playing time)
+        df['pts_per_min'] = df['pts'] / df['min']
+        df['reb_per_min'] = df['reb'] / df['min']
+        df['ast_per_min'] = df['ast'] / df['min']
+        
+        # Assist-to-turnover ratio
+        df['ast_to_ratio'] = df['ast'] / (df['tov'] + 1)  # Add 1 to avoid division by zero
+        
+        # Usage rate (simplified calculation)
+        df['usage_rate'] = (df['fga'] + 0.44 * df['fta'] + df['tov']) / df['min'] * 48
+        
+        return df
+    
+    def _create_advanced_metrics(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Create advanced basketball analytics metrics
+        
+        Args:
+            df: Input DataFrame
+            
+        Returns:
+            DataFrame with advanced metrics added
+        """
+        # Player Efficiency Rating (PER) - simplified calculation
+        df['per'] = (
+            df['pts'] + df['fg3m'] * 0.5 +
+            (2 - df['fg_pct']) * df['fgm'] +
+            df['ftm'] * 0.5 * (2 - df['fg_pct']) +
+            df['ast'] - df['tov'] -
+            (df['fga'] - df['fgm']) -
+            (df['fta'] - df['ftm']) * 0.5
+        ) / df['min'] * 48
+        
+        # Game Score (simplified)
+        df['game_score'] = (
+            df['pts'] + 0.4 * df['fgm'] - 0.7 * df['fga'] - 0.4 * (df['fta'] - df['ftm']) +
+            0.7 * df['reb'] + 0.3 * df['ast'] + df['stl'] + 0.7 * df['blk'] - 0.4 * df['tov']
+        )
+        
+        # Win Shares per 48 minutes (simplified)
+        df['ws_per_48'] = (
+            df['pts'] + df['reb'] + df['ast'] + df['stl'] + df['blk'] - df['tov']
+        ) / df['min'] * 48
+        
+        # Box Plus/Minus components
+        df['box_plus_minus'] = df['pts'] + df['reb'] * 1.2 + df['ast'] * 1.5 + df['stl'] * 2 + df['blk'] * 2 - df['tov'] * 1.5
+        
+        return df
+    
+    def _create_position_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Create position-specific features
+        
+        Args:
+            df: Input DataFrame
+            
+        Returns:
+            DataFrame with position features added
+        """
+        # Position classification based on stats
+        df['position_score'] = (
+            df['ast'] * 0.3 +  # Guards typically have more assists
+            df['reb'] * 0.2 +  # Forwards/centers typically have more rebounds
+            df['blk'] * 0.5    # Centers typically have more blocks
+        )
+        
+        # Height and weight features (if available)
+        if 'height' in df.columns and 'weight' in df.columns:
+            df['bmi'] = df['weight'] / (df['height'] ** 2)
+            df['height_weight_ratio'] = df['height'] / df['weight']
+        
+        return df
+    
+    def _create_team_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Create team context features
+        
+        Args:
+            df: Input DataFrame
+            
+        Returns:
+            DataFrame with team features added
+        """
+        # Team performance context (if team stats available)
+        if 'team_wins' in df.columns and 'team_games' in df.columns:
+            df['team_win_pct'] = df['team_wins'] / df['team_games']
+            df['team_context_score'] = df['pts'] * df['team_win_pct']
+        
+        return df
+    
+    def _create_historical_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Create historical performance features
+        
+        Args:
+            df: Input DataFrame
+            
+        Returns:
+            DataFrame with historical features added
+        """
+        # Rolling averages (if multiple seasons available)
+        if 'season' in df.columns:
+            # Group by player and calculate rolling stats
+            df = df.sort_values(['player_id', 'season'])
+            
+            # Previous season performance
+            df['prev_season_pts'] = df.groupby('player_id')['pts'].shift(1)
+            df['prev_season_reb'] = df.groupby('player_id')['reb'].shift(1)
+            df['prev_season_ast'] = df.groupby('player_id')['ast'].shift(1)
+            
+            # Performance trend
+            df['pts_trend'] = df.groupby('player_id')['pts'].pct_change()
+            df['reb_trend'] = df.groupby('player_id')['reb'].pct_change()
+            df['ast_trend'] = df.groupby('player_id')['ast'].pct_change()
+        
+        return df
+    
+    def _create_interaction_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Create interaction features between different statistics
+        
+        Args:
+            df: Input DataFrame
+            
+        Returns:
+            DataFrame with interaction features added
+        """
+        # Scoring efficiency interactions
+        df['pts_eff_interaction'] = df['pts'] * df['true_shooting_percentage']
+        df['usage_efficiency'] = df['usage_rate'] * df['true_shooting_percentage']
+        
+        # Rebounding and scoring interaction
+        df['pts_reb_interaction'] = df['pts'] * df['reb']
+        
+        # Playmaking and scoring interaction
+        df['pts_ast_interaction'] = df['pts'] * df['ast']
+        
+        # Defensive impact
+        df['defensive_impact'] = df['stl'] + df['blk'] - df['tov']
+        
+        return df
+    
+    def select_features(self, df: pd.DataFrame, target: str, 
+                       task_type: str = 'regression', k: int = 20) -> List[str]:
+        """
+        Select the best features for the model
+        
+        Args:
+            df: Input DataFrame with features
+            target: Target variable name
+            task_type: Type of task ('regression' or 'classification')
+            k: Number of features to select
+            
+        Returns:
+            List of selected feature names
+        """
+        # Separate features and target
+        feature_columns = [col for col in df.columns if col != target and col != 'player_id']
+        X = df[feature_columns].fillna(0)
+        y = df[target]
+        
+        # Remove non-numeric columns
+        numeric_columns = X.select_dtypes(include=[np.number]).columns
+        X = X[numeric_columns]
+        
+        # Select best features
+        if task_type == 'regression':
+            selector = SelectKBest(score_func=f_regression, k=k)
+        else:
+            selector = SelectKBest(score_func=f_classif, k=k)
+        
+        selector.fit(X, y)
+        selected_features = X.columns[selector.get_support()].tolist()
+        
+        self.feature_columns = selected_features
+        logger.info(f"Selected {len(selected_features)} features for {task_type}")
+        
+        return selected_features
+
+class NBARegressionModels:
+    """
+    Regression models for NBA player performance prediction
+    
+    This class implements various regression models to predict player statistics
+    such as points, rebounds, assists, and advanced metrics.
+    """
+    
+    def __init__(self):
+        """Initialize the regression models"""
+        self.models = {
+            'linear_regression': LinearRegression(),
+            'random_forest': RandomForestRegressor(n_estimators=100, random_state=42),
+            'svr': SVR(kernel='rbf', C=1.0, gamma='scale')
+        }
+        self.scaler = StandardScaler()
+        self.feature_engineer = NBAFeatureEngineer()
+        self.trained_models = {}
+        self.feature_columns = []
+        
+    def prepare_data(self, df: pd.DataFrame, target: str, 
+                    test_size: float = 0.2) -> Tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
+        """
+        Prepare data for model training
+        
+        Args:
+            df: Input DataFrame
+            target: Target variable name
+            test_size: Proportion of data for testing
+            
+        Returns:
+            Tuple of (X_train, y_train, X_test, y_test)
+        """
+        # Engineer features
+        df_with_features = self.feature_engineer.create_features(df)
+        
+        # Select features
+        self.feature_columns = self.feature_engineer.select_features(
+            df_with_features, target, task_type='regression'
+        )
+        
+        # Prepare features and target
+        X = df_with_features[self.feature_columns].fillna(0)
+        y = df_with_features[target]
+        
+        # Remove infinite values
+        X = X.replace([np.inf, -np.inf], 0)
+        
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=test_size, random_state=42
+        )
+        
+        # Scale features
+        X_train_scaled = self.scaler.fit_transform(X_train)
+        X_test_scaled = self.scaler.transform(X_test)
+        
+        return (pd.DataFrame(X_train_scaled, columns=self.feature_columns),
+                y_train,
+                pd.DataFrame(X_test_scaled, columns=self.feature_columns),
+                y_test)
+    
+    def train_models(self, X_train: pd.DataFrame, y_train: pd.Series) -> Dict[str, Any]:
+        """
+        Train all regression models
+        
+        Args:
+            X_train: Training features
+            y_train: Training target
+            
+        Returns:
+            Dictionary with trained models
+        """
+        trained_models = {}
+        
+        for name, model in self.models.items():
+            logger.info(f"Training {name} model")
+            
+            # Train model
+            model.fit(X_train, y_train)
+            
+            # Cross-validation score
+            cv_scores = cross_val_score(model, X_train, y_train, cv=5, scoring='r2')
+            
+            trained_models[name] = {
+                'model': model,
+                'cv_score_mean': cv_scores.mean(),
+                'cv_score_std': cv_scores.std()
+            }
+            
+            logger.info(f"{name} - CV R² Score: {cv_scores.mean():.4f} (+/- {cv_scores.std() * 2:.4f})")
+        
+        self.trained_models = trained_models
+        return trained_models
+    
+    def evaluate_models(self, X_test: pd.DataFrame, y_test: pd.Series) -> Dict[str, Dict]:
+        """
+        Evaluate trained models on test data
+        
+        Args:
+            X_test: Test features
+            y_test: Test target
+            
+        Returns:
+            Dictionary with evaluation metrics
+        """
+        evaluation_results = {}
+        
+        for name, model_info in self.trained_models.items():
+            model = model_info['model']
+            y_pred = model.predict(X_test)
+            
+            # Calculate metrics
+            mse = mean_squared_error(y_test, y_pred)
+            rmse = np.sqrt(mse)
+            mae = mean_absolute_error(y_test, y_pred)
+            r2 = r2_score(y_test, y_pred)
+            
+            evaluation_results[name] = {
+                'mse': mse,
+                'rmse': rmse,
+                'mae': mae,
+                'r2': r2,
+                'predictions': y_pred
+            }
+            
+            logger.info(f"{name} - R²: {r2:.4f}, RMSE: {rmse:.4f}, MAE: {mae:.4f}")
+        
+        return evaluation_results
+    
+    def predict_points_per_game(self, df: pd.DataFrame) -> np.ndarray:
+        """
+        Predict points per game for players
+        
+        Args:
+            df: Player data DataFrame
+            
+        Returns:
+            Array of predicted points per game
+        """
+        # Use the best model (Random Forest typically performs well)
+        best_model = self.trained_models['random_forest']['model']
+        
+        # Prepare features
+        df_with_features = self.feature_engineer.create_features(df)
+        X = df_with_features[self.feature_columns].fillna(0)
+        X = X.replace([np.inf, -np.inf], 0)
+        X_scaled = self.scaler.transform(X)
+        
+        return best_model.predict(X_scaled)
+    
+    def predict_rebounds_per_game(self, df: pd.DataFrame) -> np.ndarray:
+        """
+        Predict rebounds per game for players
+        
+        Args:
+            df: Player data DataFrame
+            
+        Returns:
+            Array of predicted rebounds per game
+        """
+        # Similar implementation to points prediction
+        best_model = self.trained_models['random_forest']['model']
+        
+        df_with_features = self.feature_engineer.create_features(df)
+        X = df_with_features[self.feature_columns].fillna(0)
+        X = X.replace([np.inf, -np.inf], 0)
+        X_scaled = self.scaler.transform(X)
+        
+        return best_model.predict(X_scaled)
+    
+    def save_models(self, filepath: str) -> None:
+        """
+        Save trained models to disk
+        
+        Args:
+            filepath: Path to save models
+        """
+        model_data = {
+            'models': self.trained_models,
+            'scaler': self.scaler,
+            'feature_columns': self.feature_columns,
+            'feature_engineer': self.feature_engineer
+        }
+        
+        with open(filepath, 'wb') as f:
+            pickle.dump(model_data, f)
+        
+        logger.info(f"Models saved to {filepath}")
+
+class NBAClassificationModels:
+    """
+    Classification models for NBA player categorization
+    
+    This class implements classification models to categorize players
+    by position, performance tier, and other characteristics.
+    """
+    
+    def __init__(self):
+        """Initialize the classification models"""
+        self.models = {
+            'logistic_regression': LogisticRegression(random_state=42, max_iter=1000),
+            'random_forest': RandomForestClassifier(n_estimators=100, random_state=42),
+            'svm': SVC(kernel='rbf', random_state=42)
+        }
+        self.scaler = StandardScaler()
+        self.label_encoder = LabelEncoder()
+        self.feature_engineer = NBAFeatureEngineer()
+        self.trained_models = {}
+        self.feature_columns = []
+        
+    def prepare_data(self, df: pd.DataFrame, target: str, 
+                    test_size: float = 0.2) -> Tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
+        """
+        Prepare data for classification model training
+        
+        Args:
+            df: Input DataFrame
+            target: Target variable name
+            test_size: Proportion of data for testing
+            
+        Returns:
+            Tuple of (X_train, y_train, X_test, y_test)
+        """
+        # Engineer features
+        df_with_features = self.feature_engineer.create_features(df)
+        
+        # Select features
+        self.feature_columns = self.feature_engineer.select_features(
+            df_with_features, target, task_type='classification'
+        )
+        
+        # Prepare features and target
+        X = df_with_features[self.feature_columns].fillna(0)
+        y = df_with_features[target]
+        
+        # Encode target labels
+        y_encoded = self.label_encoder.fit_transform(y)
+        
+        # Remove infinite values
+        X = X.replace([np.inf, -np.inf], 0)
+        
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y_encoded, test_size=test_size, random_state=42, stratify=y_encoded
+        )
+        
+        # Scale features
+        X_train_scaled = self.scaler.fit_transform(X_train)
+        X_test_scaled = self.scaler.transform(X_test)
+        
+        return (pd.DataFrame(X_train_scaled, columns=self.feature_columns),
+                y_train,
+                pd.DataFrame(X_test_scaled, columns=self.feature_columns),
+                y_test)
+    
+    def train_models(self, X_train: pd.DataFrame, y_train: pd.Series) -> Dict[str, Any]:
+        """
+        Train all classification models
+        
+        Args:
+            X_train: Training features
+            y_train: Training target
+            
+        Returns:
+            Dictionary with trained models
+        """
+        trained_models = {}
+        
+        for name, model in self.models.items():
+            logger.info(f"Training {name} model")
+            
+            # Train model
+            model.fit(X_train, y_train)
+            
+            # Cross-validation score
+            cv_scores = cross_val_score(model, X_train, y_train, cv=5, scoring='accuracy')
+            
+            trained_models[name] = {
+                'model': model,
+                'cv_score_mean': cv_scores.mean(),
+                'cv_score_std': cv_scores.std()
+            }
+            
+            logger.info(f"{name} - CV Accuracy: {cv_scores.mean():.4f} (+/- {cv_scores.std() * 2:.4f})")
+        
+        self.trained_models = trained_models
+        return trained_models
+    
+    def evaluate_models(self, X_test: pd.DataFrame, y_test: pd.Series) -> Dict[str, Dict]:
+        """
+        Evaluate trained classification models
+        
+        Args:
+            X_test: Test features
+            y_test: Test target
+            
+        Returns:
+            Dictionary with evaluation metrics
+        """
+        evaluation_results = {}
+        
+        for name, model_info in self.trained_models.items():
+            model = model_info['model']
+            y_pred = model.predict(X_test)
+            
+            # Calculate metrics
+            accuracy = accuracy_score(y_test, y_pred)
+            precision = precision_score(y_test, y_pred, average='weighted')
+            recall = recall_score(y_test, y_pred, average='weighted')
+            f1 = f1_score(y_test, y_pred, average='weighted')
+            
+            evaluation_results[name] = {
+                'accuracy': accuracy,
+                'precision': precision,
+                'recall': recall,
+                'f1': f1,
+                'predictions': y_pred,
+                'classification_report': classification_report(y_test, y_pred)
+            }
+            
+            logger.info(f"{name} - Accuracy: {accuracy:.4f}, F1: {f1:.4f}")
+        
+        return evaluation_results
+    
+    def classify_player_tier(self, df: pd.DataFrame) -> np.ndarray:
+        """
+        Classify players into performance tiers
+        
+        Args:
+            df: Player data DataFrame
+            
+        Returns:
+            Array of predicted player tiers
+        """
+        best_model = self.trained_models['random_forest']['model']
+        
+        # Prepare features
+        df_with_features = self.feature_engineer.create_features(df)
+        X = df_with_features[self.feature_columns].fillna(0)
+        X = X.replace([np.inf, -np.inf], 0)
+        X_scaled = self.scaler.transform(X)
+        
+        # Predict and decode labels
+        predictions_encoded = best_model.predict(X_scaled)
+        predictions = self.label_encoder.inverse_transform(predictions_encoded)
+        
+        return predictions
+    
+    def classify_player_position(self, df: pd.DataFrame) -> np.ndarray:
+        """
+        Classify players by position
+        
+        Args:
+            df: Player data DataFrame
+            
+        Returns:
+            Array of predicted positions
+        """
+        # Similar implementation to tier classification
+        best_model = self.trained_models['random_forest']['model']
+        
+        df_with_features = self.feature_engineer.create_features(df)
+        X = df_with_features[self.feature_columns].fillna(0)
+        X = X.replace([np.inf, -np.inf], 0)
+        X_scaled = self.scaler.transform(X)
+        
+        predictions_encoded = best_model.predict(X_scaled)
+        predictions = self.label_encoder.inverse_transform(predictions_encoded)
+        
+        return predictions
+
+def main():
+    """
+    Main function to demonstrate the machine learning models
+    
+    This function shows how to use the NBA machine learning models
+    for both regression and classification tasks.
+    """
+    print("NBA Player Performance Machine Learning Models")
+    print("=" * 50)
+    
+    # This would typically load real data
+    # For demo purposes, we'll create sample data
+    np.random.seed(42)
+    
+    # Create sample player data
+    n_players = 1000
+    sample_data = pd.DataFrame({
+        'player_id': range(1, n_players + 1),
+        'pts': np.random.normal(15, 8, n_players),
+        'reb': np.random.normal(6, 3, n_players),
+        'ast': np.random.normal(4, 3, n_players),
+        'min': np.random.normal(25, 8, n_players),
+        'fgm': np.random.normal(6, 3, n_players),
+        'fga': np.random.normal(12, 5, n_players),
+        'fg3m': np.random.normal(2, 1.5, n_players),
+        'fg3a': np.random.normal(5, 2, n_players),
+        'ftm': np.random.normal(3, 2, n_players),
+        'fta': np.random.normal(4, 2, n_players),
+        'stl': np.random.normal(1, 0.5, n_players),
+        'blk': np.random.normal(0.8, 0.6, n_players),
+        'tov': np.random.normal(2, 1, n_players),
+        'fg_pct': np.random.normal(0.45, 0.1, n_players),
+        'team_id': np.random.randint(1, 31, n_players)
+    })
+    
+    # Ensure positive values
+    for col in ['pts', 'reb', 'ast', 'min', 'fgm', 'fga', 'fg3m', 'fg3a', 'ftm', 'fta', 'stl', 'blk', 'tov']:
+        sample_data[col] = np.abs(sample_data[col])
+    
+    # Add position labels based on stats
+    sample_data['position'] = np.where(
+        sample_data['ast'] > sample_data['ast'].quantile(0.7), 'Guard',
+        np.where(sample_data['reb'] > sample_data['reb'].quantile(0.7), 'Forward', 'Center')
+    )
+    
+    # Add performance tier labels
+    sample_data['performance_tier'] = np.where(
+        sample_data['pts'] > sample_data['pts'].quantile(0.8), 'Elite',
+        np.where(sample_data['pts'] > sample_data['pts'].quantile(0.6), 'All-Star',
+                 np.where(sample_data["pts"] > sample_data["pts"].quantile(0.4), "Starter", "Bench")))
+    
+    print(f"Created sample dataset with {len(sample_data)} players")
+    
+    # Regression Model Example
+    print("\n" + "="*30)
+    print("REGRESSION MODELS")
+    print("="*30)
+    
+    regression_models = NBARegressionModels()
+    
+    # Prepare data for points prediction
+    X_train, y_train, X_test, y_test = regression_models.prepare_data(
+        sample_data, target='pts'
+    )
+    
+    print(f"Training set: {len(X_train)} samples")
+    print(f"Test set: {len(X_test)} samples")
+    print(f"Features: {len(regression_models.feature_columns)}")
+    
+    # Train models
+    trained_models = regression_models.train_models(X_train, y_train)
+    
+    # Evaluate models
+    evaluation_results = regression_models.evaluate_models(X_test, y_test)
+    
+    # Classification Model Example
+    print("\n" + "="*30)
+    print("CLASSIFICATION MODELS")
+    print("="*30)
+    
+    classification_models = NBAClassificationModels()
+    
+    # Prepare data for position classification
+    X_train_cls, y_train_cls, X_test_cls, y_test_cls = classification_models.prepare_data(
+        sample_data, target='position'
+    )
+    
+    print(f"Training set: {len(X_train_cls)} samples")
+    print(f"Test set: {len(X_test_cls)} samples")
+    print(f"Features: {len(classification_models.feature_columns)}")
+    
+    # Train models
+    trained_models_cls = classification_models.train_models(X_train_cls, y_train_cls)
+    
+    # Evaluate models
+    evaluation_results_cls = classification_models.evaluate_models(X_test_cls, y_test_cls)
+    
+    # Summary
+    print("\n" + "="*30)
+    print("SUMMARY")
+    print("="*30)
+    
+    print("Regression Models (Points Prediction):")
+    for name, results in evaluation_results.items():
+        print(f"  {name}: R² = {results['r2']:.4f}, RMSE = {results['rmse']:.4f}")
+    
+    print("\nClassification Models (Position Classification):")
+    for name, results in evaluation_results_cls.items():
+        print(f"  {name}: Accuracy = {results['accuracy']:.4f}, F1 = {results['f1']:.4f}")
+    
+    print("\n✅ Machine learning models demonstration completed!")
+    
+    return 0
+
+if __name__ == "__main__":
+    exit(main())

@@ -1,0 +1,380 @@
+# SQLMesh Models Configuration
+# This file defines the data models for the NBA Analytics pipeline
+
+# Model definitions for NBA player performance analytics
+# Each model represents a different layer in the data pipeline:
+# 1. Staging models - raw data ingestion
+# 2. Intermediate models - data cleaning and transformation
+# 3. Mart models - business-ready aggregated data
+
+models:
+  # STAGING MODELS - Raw data ingestion from NBA API
+  - name: stg_nba_players
+    description: "Staging table for NBA player information from API"
+    columns:
+      - name: player_id
+        type: INTEGER
+        description: "Unique NBA player identifier"
+      - name: player_name
+        type: STRING
+        description: "Full player name"
+      - name: team_id
+        type: INTEGER
+        description: "Current team identifier"
+      - name: team_name
+        type: STRING
+        description: "Current team name"
+      - name: season
+        type: STRING
+        description: "NBA season (YYYY-YY format)"
+      - name: is_active
+        type: BOOLEAN
+        description: "Whether player is currently active"
+      - name: data_loaded_at
+        type: TIMESTAMP
+        description: "Timestamp when data was loaded"
+
+  - name: stg_nba_player_stats
+    description: "Staging table for player game statistics"
+    columns:
+      - name: player_id
+        type: INTEGER
+        description: "Unique NBA player identifier"
+      - name: game_date
+        type: DATE
+        description: "Date of the game"
+      - name: matchup
+        type: STRING
+        description: "Opponent team matchup"
+      - name: wl
+        type: STRING
+        description: "Win/Loss result"
+      - name: minutes
+        type: FLOAT
+        description: "Minutes played"
+      - name: pts
+        type: FLOAT
+        description: "Points scored"
+      - name: reb
+        type: FLOAT
+        description: "Total rebounds"
+      - name: ast
+        type: FLOAT
+        description: "Assists"
+      - name: stl
+        type: FLOAT
+        description: "Steals"
+      - name: blk
+        type: FLOAT
+        description: "Blocks"
+      - name: tov
+        type: FLOAT
+        description: "Turnovers"
+      - name: fgm
+        type: FLOAT
+        description: "Field goals made"
+      - name: fga
+        type: FLOAT
+        description: "Field goals attempted"
+      - name: fg3m
+        type: FLOAT
+        description: "Three-pointers made"
+      - name: fg3a
+        type: FLOAT
+        description: "Three-pointers attempted"
+      - name: ftm
+        type: FLOAT
+        description: "Free throws made"
+      - name: fta
+        type: FLOAT
+        description: "Free throws attempted"
+      - name: plus_minus
+        type: FLOAT
+        description: "Plus/minus rating"
+      - name: data_loaded_at
+        type: TIMESTAMP
+        description: "Timestamp when data was loaded"
+
+  - name: stg_nba_advanced_stats
+    description: "Staging table for advanced player statistics"
+    columns:
+      - name: player_id
+        type: INTEGER
+        description: "Unique NBA player identifier"
+      - name: player_name
+        type: STRING
+        description: "Full player name"
+      - name: team_id
+        type: INTEGER
+        description: "Team identifier"
+      - name: team_name
+        type: STRING
+        description: "Team name"
+      - name: season
+        type: STRING
+        description: "NBA season"
+      - name: season_type
+        type: STRING
+        description: "Type of season (Regular, Playoffs, etc.)"
+      - name: gp
+        type: INTEGER
+        description: "Games played"
+      - name: min
+        type: FLOAT
+        description: "Minutes per game"
+      - name: off_rating
+        type: FLOAT
+        description: "Offensive rating"
+      - name: def_rating
+        type: FLOAT
+        description: "Defensive rating"
+      - name: net_rating
+        type: FLOAT
+        description: "Net rating (offensive - defensive)"
+      - name: ast_pct
+        type: FLOAT
+        description: "Assist percentage"
+      - name: reb_pct
+        type: FLOAT
+        description: "Rebound percentage"
+      - name: usg_pct
+        type: FLOAT
+        description: "Usage percentage"
+      - name: ts_pct
+        type: FLOAT
+        description: "True shooting percentage"
+      - name: efg_pct
+        type: FLOAT
+        description: "Effective field goal percentage"
+      - name: pie
+        type: FLOAT
+        description: "Player Impact Estimate"
+      - name: data_loaded_at
+        type: TIMESTAMP
+        description: "Timestamp when data was loaded"
+
+  # INTERMEDIATE MODELS - Data cleaning and transformation
+  - name: int_player_performance
+    description: "Intermediate model with cleaned and calculated player performance metrics"
+    columns:
+      - name: player_id
+        type: INTEGER
+        description: "Unique NBA player identifier"
+      - name: player_name
+        type: STRING
+        description: "Full player name"
+      - name: team_id
+        type: INTEGER
+        description: "Team identifier"
+      - name: team_name
+        type: STRING
+        description: "Team name"
+      - name: season
+        type: STRING
+        description: "NBA season"
+      - name: games_played
+        type: INTEGER
+        description: "Number of games played"
+      - name: minutes_per_game
+        type: FLOAT
+        description: "Average minutes per game"
+      - name: points_per_game
+        type: FLOAT
+        description: "Average points per game"
+      - name: rebounds_per_game
+        type: FLOAT
+        description: "Average rebounds per game"
+      - name: assists_per_game
+        type: FLOAT
+        description: "Average assists per game"
+      - name: steals_per_game
+        type: FLOAT
+        description: "Average steals per game"
+      - name: blocks_per_game
+        type: FLOAT
+        description: "Average blocks per game"
+      - name: turnovers_per_game
+        type: FLOAT
+        description: "Average turnovers per game"
+      - name: field_goal_pct
+        type: FLOAT
+        description: "Field goal percentage"
+      - name: three_point_pct
+        type: FLOAT
+        description: "Three-point percentage"
+      - name: free_throw_pct
+        type: FLOAT
+        description: "Free throw percentage"
+      - name: player_efficiency_rating
+        type: FLOAT
+        description: "Calculated Player Efficiency Rating (PER)"
+      - name: true_shooting_pct
+        type: FLOAT
+        description: "True shooting percentage"
+      - name: effective_fg_pct
+        type: FLOAT
+        description: "Effective field goal percentage"
+      - name: usage_rate
+        type: FLOAT
+        description: "Usage rate percentage"
+      - name: win_shares_per_48
+        type: FLOAT
+        description: "Win shares per 48 minutes"
+      - name: offensive_rating
+        type: FLOAT
+        description: "Offensive rating"
+      - name: defensive_rating
+        type: FLOAT
+        description: "Defensive rating"
+      - name: net_rating
+        type: FLOAT
+        description: "Net rating"
+      - name: player_impact_estimate
+        type: FLOAT
+        description: "Player Impact Estimate"
+      - name: data_processed_at
+        type: TIMESTAMP
+        description: "Timestamp when data was processed"
+
+  # MART MODELS - Business-ready aggregated data
+  - name: mart_player_season_summary
+    description: "Final mart table with comprehensive player season summaries"
+    columns:
+      - name: player_id
+        type: INTEGER
+        description: "Unique NBA player identifier"
+      - name: player_name
+        type: STRING
+        description: "Full player name"
+      - name: team_id
+        type: INTEGER
+        description: "Team identifier"
+      - name: team_name
+        type: STRING
+        description: "Team name"
+      - name: season
+        type: STRING
+        description: "NBA season"
+      - name: position_tier
+        type: STRING
+        description: "Player position tier classification"
+      - name: performance_tier
+        type: STRING
+        description: "Player performance tier (Elite/All-Star/Starter/Bench)"
+      - name: primary_position
+        type: STRING
+        description: "Primary playing position"
+      - name: games_played
+        type: INTEGER
+        description: "Games played in season"
+      - name: minutes_per_game
+        type: FLOAT
+        description: "Average minutes per game"
+      - name: points_per_game
+        type: FLOAT
+        description: "Average points per game"
+      - name: rebounds_per_game
+        type: FLOAT
+        description: "Average rebounds per game"
+      - name: assists_per_game
+        type: FLOAT
+        description: "Average assists per game"
+      - name: player_efficiency_rating
+        type: FLOAT
+        description: "Player Efficiency Rating"
+      - name: true_shooting_pct
+        type: FLOAT
+        description: "True shooting percentage"
+      - name: usage_rate
+        type: FLOAT
+        description: "Usage rate"
+      - name: win_shares_per_48
+        type: FLOAT
+        description: "Win shares per 48 minutes"
+      - name: net_rating
+        type: FLOAT
+        description: "Net rating"
+      - name: performance_score
+        type: FLOAT
+        description: "Composite performance score (0-100)"
+      - name: injury_risk_score
+        type: FLOAT
+        description: "Predicted injury risk score (0-100)"
+      - name: season_rank
+        type: INTEGER
+        description: "Overall season ranking among all players"
+      - name: position_rank
+        type: INTEGER
+        description: "Ranking within position group"
+      - name: data_created_at
+        type: TIMESTAMP
+        description: "Timestamp when record was created"
+      - name: data_updated_at
+        type: TIMESTAMP
+        description: "Timestamp when record was last updated"
+
+# Configuration for incremental processing
+incremental_config:
+  # Define how to identify new/changed records for incremental processing
+  incremental_key: "data_loaded_at"
+  
+  # Define lookback period for incremental processing
+  lookback_period: "7 days"
+  
+  # Define partitioning strategy for BigQuery
+  partitioning:
+    field: "season"
+    type: "range"
+    
+  # Define clustering for performance optimization
+  clustering:
+    fields: ["player_id", "team_id", "season"]
+
+# Data quality checks
+data_quality:
+  # Define data quality rules
+  rules:
+    - name: "non_null_player_id"
+      description: "Player ID should never be null"
+      sql: "SELECT COUNT(*) FROM {table} WHERE player_id IS NULL"
+      threshold: 0
+      
+    - name: "valid_season_format"
+      description: "Season should be in YYYY-YY format"
+      sql: "SELECT COUNT(*) FROM {table} WHERE season NOT REGEXP '^[0-9]{4}-[0-9]{2}$'"
+      threshold: 0
+      
+    - name: "reasonable_minutes_per_game"
+      description: "Minutes per game should be between 0 and 48"
+      sql: "SELECT COUNT(*) FROM {table} WHERE minutes_per_game < 0 OR minutes_per_game > 48"
+      threshold: 0
+      
+    - name: "positive_stats"
+      description: "Core statistics should be non-negative"
+      sql: "SELECT COUNT(*) FROM {table} WHERE points_per_game < 0 OR rebounds_per_game < 0 OR assists_per_game < 0"
+      threshold: 0
+
+# BigQuery specific configuration
+bigquery:
+  # Dataset configuration
+  dataset_id: "nba_analytics"
+  location: "US"
+  
+  # Table configuration
+  table_config:
+    # Time partitioning
+    time_partitioning:
+      type: "DAY"
+      field: "data_loaded_at"
+      
+    # Clustering
+    clustering:
+      fields: ["player_id", "team_id", "season"]
+      
+    # Table options
+    options:
+      description: "NBA Player Performance Analytics Data"
+      labels:
+        project: "nba-analytics"
+        environment: "production"
+        team: "data-science"
